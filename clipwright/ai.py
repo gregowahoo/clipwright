@@ -224,7 +224,12 @@ Typically 3-8 scenes. Return JSON:
             "you write an image prompt (the start frame) and a video prompt "
             "(the motion).\n\n"
             f"IMAGE PROMPT STYLE ({img_prof.get('label','')}):\n{img_prof.get('guidance','')}\n\n"
-            f"VIDEO PROMPT STYLE ({vid_prof.get('label','')}):\n{vid_prof.get('guidance','')}"
+            f"VIDEO PROMPT STYLE ({vid_prof.get('label','')}):\n{vid_prof.get('guidance','')}\n\n"
+            "LORA TRIGGERS: a character record may include a 'lora' object "
+            "with a 'trigger' word/phrase. Whenever that character appears in "
+            "a clip, include the trigger verbatim near the start of the image "
+            "prompt (and the video prompt too if the lora has \"video\": true), "
+            "then keep their physical description consistent with the bible."
         )
         user = f"""{self._project_context(project_id, include_bible=False)}
 
