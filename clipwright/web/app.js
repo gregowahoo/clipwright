@@ -74,7 +74,7 @@ document.addEventListener("click", async (e) => {
 });
 
 async function refreshAll() {
-  if (!PID) { $("#treeBody").innerHTML = ""; showEmpty(); return; }
+  if (!PID) { $("#treeBody").innerHTML = ""; $("#nextStep").style.display = "none"; showEmpty(); return; }
   await Promise.all([renderTree(), renderProposals(), renderRenders()]);
   if (SEL) openEntity(SEL.path, SEL.kind); else showEmpty();
 }
@@ -84,6 +84,7 @@ function showEmpty() { $("#editorEmpty").style.display = "block"; $("#editorBody
 
 async function renderTree() {
   const t = await api("GET", `/api/projects/${PID}/tree`);
+  updateNextStep(t);
   let h = `<div class="tnode ch ${selCls('project.json')}" data-path="project.json" data-kind="project">📕 ${esc(t.project.title)}</div>`;
   for (const ch of t.chapters) {
     h += `<div class="tnode ch ${selCls(ch.path)}" data-path="${ch.path}" data-kind="chapter"><span class="tid">${ch.id}</span>${esc(ch.title)}</div>`;
@@ -178,6 +179,9 @@ async function openEntity(path, kind) {
   h += `<div class="actions">
     <button class="primary" id="saveBtn">💾 Save</button>
     <button id="propBtn" title="AI checks the whole story for anything this edit breaks">🔁 Save + Propagate…</button>`;
+  if (kind === "chapter")
+    h += `<button id="scenesBtn" title="AI writes this chapter's scenes, continuity-aware">✨ Generate Scenes</button>
+          <button id="addSceneBtn">＋ Scene</button>`;
   if (kind === "scene")
     h += `<button id="clipsBtn">🎬 Generate Clips + Prompts</button>
           <button id="addClipBtn">＋ Clip</button>`;
@@ -224,6 +228,19 @@ async function openEntity(path, kind) {
     toast(`Proposal ready: ${prop.items.length} suggested change(s) — see Proposals panel`);
     await refreshAll();
   });
+  if (kind === "chapter") {
+    const chid = path.match(/chapters\/(.+?)\/chapter\.json/)[1];
+    $("#scenesBtn").onclick = (e2) => busy(e2.target, async () => {
+      const r = await api("POST", `/api/projects/${PID}/ai/scenes`, { chapter_id: chid });
+      toast(`${r.scenes.length} scenes written — open one and hit 🎬 Generate Clips + Prompts`);
+      await refreshAll();
+    });
+    $("#addSceneBtn").onclick = async () => {
+      const title = prompt("Scene title:"); if (!title) return;
+      await api("POST", `/api/projects/${PID}/scenes`, { chapter_id: chid, title });
+      renderTree();
+    };
+  }
   if (kind === "scene") {
     const ids = path.match(/chapters\/(.+?)\/scenes\/(.+?)\//);
     $("#clipsBtn").onclick = (e) => busy(e.target, async () => {
@@ -346,6 +363,65 @@ $("#historyBtn").onclick = async () => {
     `<div class="card mono" style="font-size:11px"><b>${esc(e.ts)}</b> rev ${e.rev}<br>${esc(e.path)}<br>${esc(e.summary)}</div>`).join("")
     + `<div class="actions"><button onclick="closeModal()">Close</button></div>`);
 };
+
+// ---------- next-step guidance + help ----------
+
+function updateNextStep(t) {
+  const el = $("#nextStep");
+  const step = computeNextStep(t);
+  if (!step) { el.style.display = "none"; return; }
+  el.className = "next-step"; el.style.display = "flex";
+  el.innerHTML = `<span class="ns-label">👉 Next step</span><span class="ns-msg">${step.msg}</span>`
+    + (step.target ? `<button class="small primary" id="nsGo">Take me there</button>` : "")
+    + (step.help ? `<button class="small primary" id="nsHelp">Open Help</button>` : "");
+  if (step.target) $("#nsGo").onclick = () => openEntity(step.target, step.kind);
+  if (step.help) $("#nsHelp").onclick = showHelp;
+}
+
+function computeNextStep(t) {
+  if (!t || !t.chapters.length)
+    return { msg: "This project is empty. Hit <b>✨ Generate Story</b> (top left) — type your idea and/or upload bible docs in that dialog, then Generate." };
+  const emptyCh = t.chapters.find(c => !c.scenes.length);
+  if (emptyCh)
+    return { msg: `Chapter <b>${esc(emptyCh.title)}</b> has no scenes yet. Open it and hit <b>✨ Generate Scenes</b> — or ＋ Scene to write your own.`,
+             target: emptyCh.path, kind: "chapter" };
+  const scenes = t.chapters.flatMap(c => c.scenes);
+  const bare = scenes.find(s => !s.clips.length);
+  if (bare)
+    return { msg: `Scene <b>${esc(bare.title)}</b> has no clips yet. Open it and hit <b>🎬 Generate Clips + Prompts</b>.`,
+             target: bare.path, kind: "scene" };
+  if (!CFG.comfy_online)
+    return { msg: "Prompts are ready, but ComfyUI is offline. Start ComfyUI, then refresh this page.", help: true };
+  if (!CFG.templates.some(x => x.mapped))
+    return { msg: `Prompts are ready. One-time setup: export your LTX workflow (API format) into the <code>workflows/</code> folder and add its <code>.map.json</code>, then refresh this page — Help step 5 has the details.`, help: true };
+  const unrendered = scenes.flatMap(s => s.clips).find(c => !c.renders);
+  if (unrendered)
+    return { msg: `Ready to render. Open clip <b>${esc(unrendered.action || unrendered.id)}</b>, add a start-frame image under Reference images, and hit <b>▶ Render</b>.`,
+             target: unrendered.path, kind: "clip" };
+  return { msg: "Every clip has at least one render 🎉 Review the videos on each clip, tweak a prompt and re-render, or add more scenes and chapters." };
+}
+
+function showHelp() {
+  modal(`<h3>❓ How to use Clipwright</h3><div class="help">
+  <p>The <b>👉 Next step</b> banner at the top always points at the next thing to do. The full pipeline:</p>
+  <h4>1. Create a project</h4>
+  <p><b>＋ New Project</b> — title and optional logline.</p>
+  <h4>2. Write the story</h4>
+  <p><b>✨ Generate Story</b>: type your idea and/or upload story-bible docs (.md/.txt) right in the dialog. The AI writes chapters, scenes, characters and a visual style bible. Need scenes for one chapter later? Open the chapter → <b>✨ Generate Scenes</b>.</p>
+  <h4>3. Break scenes into clips</h4>
+  <p>Open a scene → <b>🎬 Generate Clips + Prompts</b>. Each clip is one 5–10&nbsp;s render and gets an image prompt (its start frame) plus an LTX video prompt. Everything is editable — <b>💾 Save</b> keeps a revision every time (see 🕘 History).</p>
+  <h4>4. Keep the story consistent</h4>
+  <p>After changing story content, use <b>🔁 Save + Propagate</b>. The AI lists every other scene/clip your edit affects in the <b>Proposals</b> panel (right) — accept or reject each suggestion.</p>
+  <h4>5. Hook up ComfyUI (one time)</h4>
+  <p>In ComfyUI: <b>Workflow → Export (API)</b>, save into Clipwright's <code>workflows/</code> folder (e.g. <code>ltx23_i2v.json</code>). Next to it create <code>ltx23_i2v.map.json</code> naming which node inputs receive the prompt, seed and start image — copy the example in <code>workflows/README.md</code>. Refresh this page afterwards.</p>
+  <h4>6. Make the start frame</h4>
+  <p>Render the clip's IMAGE_PROMPT with your Flux/Qwen workflow in ComfyUI, then upload the result on the clip page under <b>Reference images</b> (the first image is used as the start frame).</p>
+  <h4>7. Render</h4>
+  <p>On the clip: pick a template → <b>▶ Render</b>. Status updates automatically; the finished video plays right on the clip page and is stored with the exact prompt, references and seed that made it. Render again any time — old renders are never overwritten.</p>
+  </div>
+  <div class="actions"><button onclick="closeModal()">Close</button></div>`);
+}
+$("#helpBtn").onclick = showHelp;
 
 window.closeModal = closeModal;
 boot().catch(e => toast(e.message, true));

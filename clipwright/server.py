@@ -206,6 +206,18 @@ def ai_story(pid: str, body: StoryIn):
         raise _err(e)
 
 
+class ScenesIn(BaseModel):
+    chapter_id: str
+
+
+@app.post("/api/projects/{pid}/ai/scenes")
+def ai_scenes(pid: str, body: ScenesIn):
+    try:
+        return engine.generate_scenes(pid, body.chapter_id)
+    except Exception as e:
+        raise _err(e)
+
+
 class ClipsIn(BaseModel):
     chapter_id: str
     scene_id: str

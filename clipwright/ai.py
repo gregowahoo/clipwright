@@ -151,6 +151,60 @@ Aim for a structure appropriate to the material - a full-length story typically 
                 n_scenes += 1
         return {"chapters": len(data.get("chapters", [])), "scenes": n_scenes}
 
+    def generate_scenes(self, project_id: str, chapter_id: str) -> dict:
+        """Fill (or extend) one chapter with scenes, aware of the whole story."""
+        chapter_rel = f"chapters/{chapter_id}/chapter.json"
+        chapter = self.store.load(project_id, chapter_rel)
+        proj = self.store.load(project_id, "project.json")
+
+        # compact overview of all chapters + existing scenes for continuity
+        overview = []
+        for chid in proj.get("chapters", []):
+            ch = self.store.load(project_id, f"chapters/{chid}/chapter.json")
+            scenes = []
+            for sid in ch.get("scenes", []):
+                sc = self.store.load(project_id,
+                                     f"chapters/{chid}/scenes/{sid}/scene.json")
+                scenes.append({"id": sid, "title": sc.get("title"),
+                               "summary": sc.get("summary"),
+                               "continuity": sc.get("continuity")})
+            overview.append({"id": chid, "title": ch.get("title"),
+                             "summary": ch.get("summary"), "scenes": scenes})
+
+        system = (
+            "You are a story architect for AI-generated video production. "
+            "You break one chapter into scenes. A scene is like a page of a "
+            "chapter: one location and time, a coherent set of dramatic beats, "
+            "filmable in a handful of 5-10 second clips. Maintain the "
+            "continuity chain: each scene's 'continuity.in' must match the "
+            "previous scene's 'continuity.out', and the chapter must connect "
+            "cleanly to its neighbours."
+        )
+        user = f"""{self._project_context(project_id)}
+
+ALL CHAPTERS (for context):
+{json.dumps(overview, indent=1)}
+
+Write the scenes for chapter {chapter_id} - "{chapter.get('title')}":
+{chapter.get('summary', '')}
+
+{"This chapter already has the scenes listed above - ADD the scenes that continue after them." if chapter.get('scenes') else ""}
+Typically 3-8 scenes. Return JSON:
+{{"scenes": [{{"title":"", "summary":"3-6 sentences of what happens on this 'page'",
+  "setting":"location, time of day, weather, mood",
+  "characters":["character ids"],
+  "beats":["beat 1","beat 2","..."],
+  "continuity":{{"in":"state coming in","out":"state going out"}}}}]}}"""
+        data = self._ask_json(system, user, max_tokens=16000)
+        made = []
+        for sc in data.get("scenes", []):
+            made.append(self.store.add_scene(
+                project_id, chapter_id, sc.get("title", "Scene"),
+                summary=sc.get("summary", ""), setting=sc.get("setting", ""),
+                characters=sc.get("characters", []), beats=sc.get("beats", []),
+                continuity=sc.get("continuity", {"in": "", "out": ""}))["id"])
+        return {"scenes": made}
+
     # ---------- clip breakdown + prompts ----------
 
     def generate_clips(self, project_id: str, chapter_id: str, scene_id: str) -> dict:
