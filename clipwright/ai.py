@@ -47,12 +47,15 @@ class Engine:
 
     def _ask_json(self, system: str, user: str, max_tokens: int = 8000):
         client = self._client()
-        msg = client.messages.create(
+        # stream: the SDK rejects non-streaming requests large enough to
+        # exceed ~10 minutes (story generation with 32k max_tokens is one)
+        with client.messages.stream(
             model=self.model, max_tokens=max_tokens,
             system=system + "\n\nRespond with ONLY a valid JSON object or array. "
                             "No markdown fences, no commentary.",
             messages=[{"role": "user", "content": user}],
-        )
+        ) as stream:
+            msg = stream.get_final_message()
         text = "".join(b.text for b in msg.content if b.type == "text").strip()
         m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
         if m:
