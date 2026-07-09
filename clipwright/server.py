@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "comfy_url": "http://127.0.0.1:8188",
     "model": ai.DEFAULT_MODEL,
     "port": 8321,
+    "host": "127.0.0.1",  # set to "0.0.0.0" to reach the app from other machines on your LAN
 }
 
 
@@ -309,8 +310,13 @@ app.mount("/static", StaticFiles(directory=APP_DIR / "web"), name="static")
 
 def main():
     import uvicorn
-    print(f"\n  Clipwright  ->  http://127.0.0.1:{config['port']}\n")
-    uvicorn.run(app, host="127.0.0.1", port=config["port"], log_level="warning")
+    host = config.get("host", "127.0.0.1")
+    print(f"\n  Clipwright  ->  http://127.0.0.1:{config['port']}")
+    if host == "0.0.0.0":
+        import socket
+        print(f"  On your LAN  ->  http://{socket.gethostname()}:{config['port']}")
+    print()
+    uvicorn.run(app, host=host, port=config["port"], log_level="warning")
 
 
 if __name__ == "__main__":
