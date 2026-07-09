@@ -23,7 +23,7 @@ DEFAULT_CONFIG = {
     "comfy_url": "http://127.0.0.1:8188",
     "model": ai.DEFAULT_MODEL,
     "port": 8321,
-    "host": "127.0.0.1",  # set to "0.0.0.0" to reach the app from other machines on your LAN
+    "host": "0.0.0.0",  # reachable from your LAN; set to "127.0.0.1" for this machine only
 }
 
 
